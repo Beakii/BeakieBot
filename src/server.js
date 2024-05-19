@@ -17,26 +17,31 @@ const Request = require('tedious').Request;
 const TYPES = require('tedious').TYPES;
 
 const ngrokURL = "https://typically-quick-kingfish.ngrok-free.app";
+const clientCredentialsPost = "https://id.twitch.tv/oauth2/token?client_id=" + configuration.CLIENT_ID + "&client_secret=" + configuration.CLIENT_SECRET + "&grant_type=client_credentials&scope=channel:manage:redemptions channel:read:redemptions chat:edit chat:read"
 let access_token = "";
+let oauth_token = "";
+var connection = new Connection(DBConfig);
 
 
-var connection = new Connection(DBConfig);  
+function createNewDBConnection(){
+    connection = new Connection(DBConfig); 
+}
+
+//Read all access tokens from DB to code
 connection.connect();
-
 connection.on('connect', function(err) {  
     // If no error, then good to proceed.
     if(err){
         console.log(err);
     }
     else{
-        console.log("////////// DATABASE CONNECTION OPENED //////////")  
-        executeQuery("WRITE","INSERT INTO Config(ConfigType, ConfigData) VALUES ('SomeValueHere', 'SomeValueHere')", false);
-        setTimeout(()=>{executeQuery("READ","SELECT * FROM Config", true)}, 1000);
-        
+        console.log("////////// DATABASE CONNECTION OPENED //////////")
+        executeQuery("INIT","SELECT * FROM Config");
     }
 });
 
-function executeQuery(typeOfQuery, query, closeConnection){
+
+function executeQuery(typeOfQuery, query){
     let request = new Request(query, function(err){
         if(err){
             console.log("query error");
@@ -44,20 +49,31 @@ function executeQuery(typeOfQuery, query, closeConnection){
         }
     });
 
-    if(typeOfQuery === "READ"){
-        let result = "";
+    if(typeOfQuery === "INIT"){
+        let prevColumn = "";
         request.on('row', function(columns){
-            columns.forEach(function(column){
+            columns.forEach((column) => {
                 if(column.value === null){
                     console.log("null");
                 }
                 else{
-                    result += column.value + " ";
+                    switch(prevColumn){
+                        case "client_credentials_access_token":
+                            access_token = column.value;
+                            break;
+                        
+                        case "user_oauth_token":
+                            oauth_token = column.value;
+                            break;
+    
+                        case "seventv_auth_token":
+                            sevenTv_token = column.value;
+                    }
                 }
+                prevColumn = column.value;
             });
-            console.log(result);
-            result = "";
         });
+
     }
     else if(typeOfQuery === "WRITE"){
         request.addParameter("configType", TYPES.NVarChar);
@@ -72,22 +88,16 @@ function executeQuery(typeOfQuery, query, closeConnection){
             }
         });
     }
-
-    request.on('done', function(rowCount, more){
-        console.log(rowCount + ' rows returned FROM DONE');
-    });
-    request.on('doneProc', function(rowCount, more){
-        console.log(rowCount + ' rows returned FROM DONEPROC');
-    });
     request.on('doneInProc', function(rowCount, more){
-        console.log(rowCount + ' rows returned FROM DONEINPROC');
+        console.log(rowCount + ' rows returned');
     });
 
     request.on('requestCompleted', function(rowCount, more){
-        if(closeConnection){
-            console.log("////////// DATABASE CONNECTION CLOSED //////////")        
-            connection.close();
-        }
+        console.log("////////// DATABASE CONNECTION CLOSED //////////")
+        if(typeOfQuery === "INIT"){
+            checkTokens();
+        }   
+        connection.close();
     })
 
     connection.execSql(request);
@@ -98,6 +108,61 @@ process.on("SIGINT", ()=>{
     endAllSubbedStreams();
     process.exit(0);
 });
+
+function checkTokens(){
+    console.log("Access Token: "+access_token);
+    console.log("OAuth Token: "+oauth_token);
+}
+
+function twitchTokenValidate(token){
+//Validate a token
+// axios.get("https://id.twitch.tv/oauth2/validate",
+// {
+//     headers:{
+//         "Authorization": "Bearer "+access_token
+//     }
+// })
+// .then(response => {
+//     console.log("////////// Client Token Auth Response //////////");
+//     console.log(response.status);
+//     console.log(response.data);
+// })
+}
+
+function twitchTokenGet(){
+    axios.post("https://id.twitch.tv/oauth2/token" +
+        "?client_id=" + configuration.CLIENT_ID +
+        "&client_secret=" + configuration.CLIENT_SECRET +
+        "&grant_type=client_credentials" +
+        "&scope=" +
+        "channel:manage:redemptions channel:read:redemptions " +
+        "chat:edit chat:read")
+    .then(response => {
+        console.log("twitch connection started")
+        access_token = response.data.access_token;
+
+        // createNewDBConnection();
+        // connection.connect();
+
+        // connection.on('connect', function(err) {  
+        //     // If no error, then good to proceed.
+        //     if(err){
+        //         console.log(err);
+        //     }
+        //     else{
+        //         console.log("////////// DATABASE CONNECTION OPENED //////////")
+        //         executeQuery("WRITE","INSERT INTO Config(ConfigType, ConfigData) VALUES ('client_credentials_access_token', '"+access_token+"')");
+        //     }
+        // });
+
+        for(let i = 0; i < twitchEvents.types.length; i++){
+            axios.post(ngrokURL + "/createWebhook?eventType=" + twitchEvents.types[i])
+                .then(() => {console.log(i, "Webhook established :" + twitchEvents.types[i])})
+                .catch(webhookError => {console.log("Webhook creation error: " + webhookError)})
+        }
+    })
+    .catch(error => {console.log(error)});
+}
 
 function endAllSubbedStreams(){
     axios.get("https://api.twitch.tv/helix/eventsub/subscriptions",
@@ -169,12 +234,27 @@ httpsApp.use(bodyParser.urlencoded({ extended: true }));
 httpsApp.use(express.static(__dirname + "/html"));
 httpsApp.use(express.json({verify: verifyTwitchWebhookSignatures}));
 
-httpsApp.get("/redirect", function(request, response){
-    response.sendFile(__dirname + "/html/appAccessRedirect.html");
-});
+httpsApp.get("/bot-functions", function(request, response){
+    response.sendFile(__dirname + "/html/botFunctions.html");
+})
 
-httpsApp.post("/redirect", function(request, response){
-    console.log(request);
+httpsApp.route("/auth").get((req, res) => {
+    res.sendFile(__dirname + "/html/authRedirect.html");
+    //Returns OAuth Token
+    axios.post("https://id.twitch.tv/oauth2/token?client_id="+configuration.CLIENT_ID+
+    "&client_secret="+configuration.CLIENT_SECRET+
+    "&code="+req.query.code+"&grant_type=authorization_code&redirect_uri="+ngrokURL+"/auth").then(res => {
+        console.log(res);
+    })
+})
+
+httpsApp.get("/", function(request, response){
+    response.sendFile(__dirname + "/html/appAccessRedirect.html");
+    console.log(request.query);
+})
+
+httpsApp.get("/redirect/callback", function(request, response){
+
 });
 
 httpsApp.post("/twitchwebhooks/callback", async (request, response) => {
@@ -245,37 +325,16 @@ httpsServer.listen(4000, function(){
 
 //This returns an access token for the bot to access EventSub API
 //Creates the connection to the twitch channel for the substreams
-axios.post("https://id.twitch.tv/oauth2/token" +
-        "?client_id=" + configuration.CLIENT_ID +
-        "&client_secret=" + configuration.CLIENT_SECRET +
-        "&grant_type=client_credentials" +
-        "&scope=" +
-        "channel:manage:redemptions channel:read:redemptions " +
-        "chat:edit chat:read")
-    .then(response => {
-        console.log("twitch connection started")
-        access_token = response.data.access_token;
+if(access_token === ""){
 
-        for(let i = 0; i < twitchEvents.types.length; i++){
-            axios.post(ngrokURL + "/createWebhook?eventType=" + twitchEvents.types[i])
-                .then(() => {console.log(i, "Webhook established :" + twitchEvents.types[i])})
-                .catch(webhookError => {console.log("Webhook creation error: " + webhookError)})
-        }
-    })
-    .catch(error => {console.log(error)});
+}
+else{
+    console.log("Access Token Already in DB: " + access_token);
+}
 
-//Validate a token
-// axios.get("https://id.twitch.tv/oauth2/validate",
-// {
-//     headers:{
-//         "Authorization": "Bearer "+access_token
-//     }
-// })
-// .then(response => {
-//     console.log("////////// Client Token Auth Response //////////");
-//     console.log(response.status);
-//     console.log(response.data);
-// })
+
+
+
 
 
 
