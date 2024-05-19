@@ -1,12 +1,8 @@
 //Library imports
 const tmi = require('tmi.js');
-const configuration = require('./configs/configTest'); //CHANGE THIS FOR TESTING/PRODUCTIONS
 var bannedWords = require('./configs/bannedWords');
 const axios = require('axios');
 
-
-const ngrokURL = "https://typically-quick-kingfish.ngrok-free.app";
-let access_token = "";
 const addRewardName = "7TV ADD";
 const removeRewardName = "7TV REMOVE";
 var redeemId = [];
@@ -19,165 +15,6 @@ chatbot.connect();
 function sendTwitchChatMessage(userName, emotePrefix, message){
     chatbot.action(configuration.channels[0], emotePrefix + "@"+ userName + " " + message);
 }
-
-//Handles closing the terminal and unsubbing from streams.
-process.on("SIGINT", ()=>{
-    removeCustomReward();
-    endAllSubbedStreams();
-    waitForUnsubBeforeTerminate();
-});
-
-function waitForUnsubBeforeTerminate(){
-    setTimeout(function(){
-        process.exit(0)
-    }, 1000);
-}
-//Config for the different event type subs for twitch
-//#region Twitch Events + Configs
-const eventTypesConfig = {
-    "channel.follow": {
-        "type": "channel.follow",
-        "version": "2",
-        "condition": {
-            "broadcaster_user_id": configuration.broadcaster_id,
-            "moderator_user_id": configuration.broadcaster_id
-        }
-    },
-    "channel.ban": {
-        "type": "channel.ban",
-        "version": "1",
-        "condition": {
-            "broadcaster_user_id": configuration.broadcaster_id
-        }
-    },
-    "channel.unban": {
-        "type": "channel.unban",
-        "version": "1",
-        "condition": {
-            "broadcaster_user_id": configuration.broadcaster_id
-        }
-    },
-    "channel.channel_points_custom_reward.add": {
-        "type": "channel.channel_points_custom_reward.add",
-        "version": "1",
-        "condition": {
-            "broadcaster_user_id": configuration.broadcaster_id
-        }
-    },
-    "channel.channel_points_custom_reward.update": {
-        "type": "channel.channel_points_custom_reward.update",
-        "version": "1",
-        "condition": {
-            "broadcaster_user_id": configuration.broadcaster_id
-        }
-    },
-    "channel.channel_points_custom_reward.remove": {
-        "type": "channel.channel_points_custom_reward.remove",
-        "version": "1",
-        "condition":
-            {
-                "broadcaster_user_id": configuration.broadcaster_id
-            }
-    },
-    "channel.channel_points_custom_reward_redemption.add": {
-        "type": "channel.channel_points_custom_reward_redemption.add",
-        "version": "1",
-        "condition":
-            {
-                "broadcaster_user_id": configuration.broadcaster_id
-            }
-    },
-    "channel.channel_points_custom_reward_redemption.update": {
-        "type": "channel.channel_points_custom_reward_redemption.update",
-        "version": "1",
-        "condition": {
-            "broadcaster_user_id": configuration.broadcaster_id
-        }
-    },
-    "channel.poll.begin": {
-        "type": "channel.poll.begin",
-        "version": "1",
-        "condition": {
-            "broadcaster_user_id": configuration.broadcaster_id
-        }
-    },
-    "channel.poll.progress": {
-        "type": "channel.poll.progress",
-        "version": "1",
-        "condition": {
-            "broadcaster_user_id": configuration.broadcaster_id
-        }
-    },
-    "channel.poll.end": {
-        "type": "channel.poll.end",
-        "version": "1",
-        "condition": {
-            "broadcaster_user_id": configuration.broadcaster_id
-        }
-    },
-    "channel.prediction.begin": {
-        "type": "channel.prediction.begin",
-        "version": "1",
-        "condition": {
-            "broadcaster_user_id": configuration.broadcaster_id
-        }
-    },
-    "channel.prediction.progress": {
-        "type": "channel.prediction.progress",
-        "version": "1",
-        "condition": {
-            "broadcaster_user_id": configuration.broadcaster_id
-        }
-    },
-    "channel.prediction.lock": {
-        "type": "channel.prediction.lock",
-        "version": "1",
-        "condition": {
-            "broadcaster_user_id": configuration.broadcaster_id
-        }
-    },
-    "channel.prediction.end": {
-        "type": "channel.prediction.end",
-        "version": "1",
-        "condition": {
-            "broadcaster_user_id": configuration.broadcaster_id
-        }
-    },
-    "stream.online": {
-        "type": "stream.online",
-        "version": "1",
-        "condition": {
-            "broadcaster_user_id": configuration.broadcaster_id
-        }
-    },
-    "stream.offline": {
-        "type": "stream.offline",
-        "version": "1",
-        "condition": {
-            "broadcaster_user_id": configuration.broadcaster_id
-        }
-    }
-};
-const eventTypes = [
-    // "channel.follow",
-    // "channel.ban",
-    // "channel.unban",
-    "channel.channel_points_custom_reward.add",
-    "channel.channel_points_custom_reward.update",
-    "channel.channel_points_custom_reward.remove",
-    "channel.channel_points_custom_reward_redemption.add",
-    "channel.channel_points_custom_reward_redemption.update",
-    // "channel.poll.begin",
-    // "channel.poll.progress",
-    // "channel.poll.end",
-    // "channel.prediction.begin",
-    // "channel.prediction.progress",
-    // "channel.prediction.lock",
-    // "channel.prediction.end",
-    "stream.online",
-    "stream.offline",
-];
-//#endregion
 
 function addCustomReward(){
     var data = {
@@ -275,38 +112,11 @@ function updateRedemptionStatus(rewardStatus, redemptionId, rewardId){
     .catch(error => console.log(error));
 }
 
-function verifyTwitchWebhookSignatures(request, response, buffer, encoding){
-    const twitchMessageID = request.header("Twitch-Eventsub-Message-Id");
-    const twitchTimeStamp = request.header("Twitch-Eventsub-Message-Timestamp");
-    const twitchMessageSignature = request.header("Twitch-Eventsub-Message-Signature");
-    const currentTimeStamp = Math.floor(new Date().getTime() / 1000);
-
-    if(Math.abs(currentTimeStamp - twitchTimeStamp) > 600){
-        throw new Error("Signature is older than 10 minutes. Ignore this request");
-    }
-
-    if(!configuration.TWITCH_SIGNING_SECRET){
-        throw new Error("The Twitch signing secret is missing.");
-    }
-
-    const ourMessageSignature = "sha256=" + crypto
-        .createHmac("sha256", configuration.TWITCH_SIGNING_SECRET)
-        .update(twitchMessageID + twitchTimeStamp + buffer)
-        .digest("hex");
-
-    if(twitchMessageSignature !== ourMessageSignature){
-        throw new Error("Invalid signature");
-    }
-    else{
-        console.log("Signature verified");
-    }
-}
-
 //Filters the input text to return an array of valid URL's
 function findURLs(userInput) {
-        let urlRegex = /(https?:\/\/[^\s]+)/g;
-        return userInput.match(urlRegex);
-    }
+    let urlRegex = /(https?:\/\/[^\s]+)/g;
+    return userInput.match(urlRegex);
+}
     
 //Takes the UserInput from a Twitch Event and returns the emote ID for 7tv
 function getEmoteId(unCheckedUserInput){
@@ -329,7 +139,6 @@ function getEmoteId(unCheckedUserInput){
         return "No URL Found";
     }
 }
-
 
 function postRequestToSevenTv(methodToSend, emoteIDToSend){
     console.log("we are sending this id: "+emoteIDToSend)
@@ -509,43 +318,6 @@ function twitchWebhookEventHandler(webhookEvent){
     }
 };
 
-function endAllSubbedStreams(){
-    axios.get("https://api.twitch.tv/helix/eventsub/subscriptions",
-    {
-        headers: {
-            "Client-Id": configuration.CLIENT_ID,
-            Authorization: "Bearer " + access_token
-        }
-    })
-    .then(response => {
-        if (response.status === 200) {
-            const subscribedEvents = response.data;
-            console.log("Number of events to unsubscribe: " + subscribedEvents.data.length);
-
-            for (let i = 0; i < subscribedEvents.data.length; i++) {
-                axios.delete("https://api.twitch.tv/helix/eventsub/subscriptions?id=" +
-                    subscribedEvents.data[i].id,
-                    {
-                        headers: {
-                            "Client-ID": configuration.CLIENT_ID,
-                            Authorization: "Bearer " + access_token
-                        }
-                    }).then(() => {
-                    console.log(i, subscribedEvents.data[i].type + " unsubscribed");
-                }).catch(webhookError => {
-                    console.log("Webhook unsubscribe error: " + webhookError);
-                });
-            }
-        }
-        else {
-            console.log(response.status, response.data);
-        }
-    })
-    .catch(error => {
-        console.log(error);
-    });
-}
-
 function chatMessageHandler(channel, userState, message, self) {
     const wordArray = message.split(" ");
 
@@ -553,30 +325,3 @@ function chatMessageHandler(channel, userState, message, self) {
        endAllSubbedStreams();
     }
 }
-
-
-
-
-//Gets a list of managable redeems
-axios.get("https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id="+configuration.broadcaster_id+"&only_manageable_rewards=true",
-    {
-        headers:{
-            "Content-Type": "application/json",
-            "Client-ID": configuration.CLIENT_ID,
-            "Authorization": "Bearer " + access_token
-        }
-    })
-    .then(response => {        
-        //Checking if there is any managable redeems returns
-        if(response.data.data.length === 0){
-            console.log("No manageable redeems")
-            addCustomReward();
-        }
-        else{
-            console.log("manageable redeems.")
-            redeemId[0] = response.data.data[0].id;
-            redeemId[1] = response.data.data[1].id;
-            console.log(response.data)
-        }
-    })
-    .catch(error => {console.log(error)});
