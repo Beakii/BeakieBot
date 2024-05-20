@@ -1,5 +1,6 @@
 const axios = require('axios');
-const configuration = require('./configs/configTest');
+const configuration = require('./configs/configProduction');
+// const configuration = require('./configs/configTest');
 const twitchEvents = require('./twitchEvents');
 const DBConfig = require('./configs/dbConfig');
 const fs = require('fs');
@@ -22,12 +23,16 @@ const ngrokURL = "https://typically-quick-kingfish.ngrok-free.app";
 let access_token = "";
 let oauth_token = "";
 let oauth_refresh_token = "";
-let expiresIn = "";
+let expiresIn = new Date();
 const addRewardName = "7TV ADD";
 const removeRewardName = "7TV REMOVE";
 var redeemId = [];
 var connection = new Connection(DBConfig);
 
+
+const chatbot = new tmi.client(configuration);
+chatbot.on("message", chatMessageHandler); //calls chatMessageHandler upon receiving a chat message
+chatbot.connect();
 
 function createNewDBConnection(){
     connection = new Connection(DBConfig); 
@@ -50,28 +55,11 @@ connection.on('connect', function(err) {
 //Programatically restart
 function reinitializeApp(){
     twitchClientTokenGet();
-    twitchGetOAuthToken(oauth_refresh_token).then(token => {
-        oauth_token = token.access_token;
-        oauth_refresh_token = token.refresh_token;
-        expiresIn = token.expires_in;
+    twitchGetOAuthToken(oauth_refresh_token);
 
-        console.log("OAuth Token Expires in:"+expiresIn);
-    });
-
-    //Wait 5 seconds to run this to negate race conditions
     setTimeout(() => {
-        createNewDBConnection();
-        connection.on('connect', function(err) {  
-            // If no error, then good to proceed.
-            if(err){
-                console.log(err);
-            }
-            else{
-                console.log("////////// DATABASE CONNECTION OPENED //////////")
-                executeQuery("WRITE","UPDATE Config SET ConfigData = "+oauth_refresh_token+" WHERE ConfigType = 'oauth_refresh_token'");
-            }
-        });        
-        checkTokens();
+        checkTokens(true);
+        startAllSubStreams();
     }, 5000);
 }
 
@@ -141,13 +129,28 @@ process.on("SIGINT", ()=>{
     removeCustomReward();
     setTimeout(()=>{
         process.exit(0);
-    }, 2000)
+    }, 5000)
 });
 
-function checkTokens(){
-    twitchTokenValidate(access_token);
-    twitchTokenValidate(oauth_token);
-    getListOfManagableRedeems();
+function checkTokens(isInit){
+    twitchTokenValidate(access_token).then(res => {
+        console.log("Client Access Token: "+res.status)
+        console.log(res.data)
+        if(res.status !== 200){
+            twitchClientTokenGet();
+        }
+    });
+    twitchTokenValidate(oauth_token).then(res => {
+        console.log("OAuth Token: "+res.status)
+        console.log(res.data)
+        if(res.status !== 200){
+            twitchGetOAuthToken(oauth_refresh_token);
+        }
+    });
+
+    if(isInit){
+        getListOfManagableRedeems();
+    }
 }
 
 // Requires OAuth token
@@ -180,7 +183,7 @@ function getListOfManagableRedeems(){
 function twitchTokenValidate(token){
     // Validate a token
     console.log(token);
-    axios.get("https://id.twitch.tv/oauth2/validate",
+    return axios.get("https://id.twitch.tv/oauth2/validate",
     {
         headers:{
             "Authorization": "Bearer "+token
@@ -188,14 +191,13 @@ function twitchTokenValidate(token){
     })
     .then(response => {
         console.log("////////// Client Token Auth Response //////////");
-        console.log(response.status);
+        return response;
         //console.log(response.data);
     })
 }
 
 function twitchGetOAuthToken(refreshToken){
-
-    return axios({
+    axios({
         url: 'https://id.twitch.tv/oauth2/token',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded'
@@ -203,7 +205,27 @@ function twitchGetOAuthToken(refreshToken){
         method: 'post',
         data: `grant_type=refresh_token&refresh_token=${refreshToken}&client_id=${configuration.CLIENT_ID}&client_secret=${configuration.CLIENT_SECRET}`
     }).then(res => {
-        return res.data;
+        oauth_token = res.data.access_token;
+        oauth_refresh_token = res.data.refresh_token;
+        expiresIn = res.data.expires_in;
+
+        console.log("Refresh token will expire in: "+expiresIn/60+" minutes");
+
+        //Wait 5 seconds to run this to negate race conditions
+        setTimeout(() => {
+            console.log("gonna write to the DB now: "+ refreshToken);
+            createNewDBConnection();
+            connection.on('connect', function(err) {  
+                // If no error, then good to proceed.
+                if(err){
+                    console.log(err);
+                }
+                else{
+                    console.log("////////// DATABASE CONNECTION OPENED //////////")
+                    executeQuery("WRITE","UPDATE Config SET ConfigData = "+refreshToken+" WHERE ConfigType = 'oauth_refresh_token'");
+                }
+            });        
+        }, 2000);
     }).catch(error => {
         console.log(error);
     })
@@ -218,16 +240,19 @@ function twitchClientTokenGet(){
         "channel:manage:redemptions channel:read:redemptions " +
         "chat:edit chat:read")
     .then(response => {
-        console.log("twitch connection started")
         access_token = response.data.access_token;
-
-        for(let i = 0; i < twitchEvents.types.length; i++){
-            axios.post(ngrokURL + "/createWebhook?eventType=" + twitchEvents.types[i])
-                .then(() => {console.log(i, "Webhook established :" + twitchEvents.types[i])})
-                .catch(webhookError => {console.log("Webhook creation error: " + webhookError)})
-        }
     })
     .catch(error => {console.log(error)});
+}
+
+function startAllSubStreams(){
+    for(let i = 0; i < twitchEvents.types.length; i++){
+        axios.post(ngrokURL + "/createWebhook?eventType=" + twitchEvents.types[i])
+            .then(() => {
+                console.log(i, "Webhook established :" + twitchEvents.types[i])
+            })
+            .catch(webhookError => {console.log("Webhook creation error: " + webhookError)})
+    }
 }
 
 function endAllSubbedStreams(){
@@ -401,7 +426,6 @@ httpsApp.post("/createWebhook", (request, response) => {
     webhookRequest.end();
 });
 
-
 httpsServer.listen(4000, function(){
     console.log("HTTPS client has started.");
 })
@@ -410,9 +434,6 @@ httpsServer.listen(4000, function(){
 //
 //#region Twitch Event
 //Creation of the Chatbot instance
-const chatbot = new tmi.client(configuration);
-chatbot.on("message", chatMessageHandler); //calls chatMessageHandler upon receiving a chat message
-chatbot.connect();
 
 function sendTwitchChatMessage(userName, emotePrefix, message){
     chatbot.action(configuration.channels[0], emotePrefix + "@"+ userName + " " + message);
@@ -421,7 +442,7 @@ function sendTwitchChatMessage(userName, emotePrefix, message){
 function addCustomReward(){
     var data = {
         "title":addRewardName,
-        "cost": 1, //CHANGE THIS BEFORE LAUNCHING ON MONCHIS STREAM.
+        "cost": 15000, 
         "is_user_input_required": true,
         "prompt": "Please enter the 7TV emote link you would like to add. No sexual emotes. If you manage to outsmart me, a mod will remove the emote. Refunds will be automatic on failed requests.",
         "is_global_cooldown_enabled": true,
@@ -431,7 +452,7 @@ function addCustomReward(){
 
     var data2 = {
         "title":removeRewardName,
-        "cost": 1, //CHANGE THIS BEFORE LAUNCHING ON MONCHIS STREAM.
+        "cost": 15000,
         "is_user_input_required": true,
         "prompt": "Please enter the 7TV emote link you would like to remove.",
         "is_global_cooldown_enabled": true,
@@ -721,10 +742,13 @@ function twitchWebhookEventHandler(webhookEvent){
 };
 
 function chatMessageHandler(channel, userState, message, self) {
-    const wordArray = message.split(" ");
 
-    if (wordArray[0].toLowerCase() === "!endstream") {
-       endAllSubbedStreams();
-    }
+    //sendTwitchChatMessage("","", "connected");
+
+    // const wordArray = message.split(" ");
+
+    // if (wordArray[0].toLowerCase() === "!endstream") {
+    //    endAllSubbedStreams();
+    // }
 }
 //#endregion

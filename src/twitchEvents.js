@@ -1,4 +1,5 @@
-const configuration = require('./configs/configTest');
+// const configuration = require('./configs/configTest');
+const configuration = require('./configs/configProduction');
 
 const typesConfig = {
     "channel.follow": {
@@ -129,11 +130,13 @@ const types = [
     // "channel.follow",
     // "channel.ban",
     // "channel.unban",
+    
     "channel.channel_points_custom_reward.add",
     "channel.channel_points_custom_reward.update",
     "channel.channel_points_custom_reward.remove",
     "channel.channel_points_custom_reward_redemption.add",
     "channel.channel_points_custom_reward_redemption.update",
+
     // "channel.poll.begin",
     // "channel.poll.progress",
     // "channel.poll.end",
@@ -141,8 +144,8 @@ const types = [
     // "channel.prediction.progress",
     // "channel.prediction.lock",
     // "channel.prediction.end",
-    "stream.online",
-    "stream.offline",
+    // "stream.online",
+    // "stream.offline",
 ];
 
 module.exports = {typesConfig, types};
