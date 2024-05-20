@@ -17,3 +17,4 @@ BeakieBot is a JavaScript based bot that listens to the EventSub API from Twitch
 - ~~Implement OAuth token implicit grant flow~~
 - Redo the error checking flow before making HTTP requests to 7TV
 - Extend support for chat-based interactions through a commands list
+- Extend support for multi-channel runtime

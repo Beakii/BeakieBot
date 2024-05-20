@@ -192,7 +192,6 @@ function twitchTokenValidate(token){
     .then(response => {
         console.log("////////// Client Token Auth Response //////////");
         return response;
-        //console.log(response.data);
     })
 }
 
@@ -444,9 +443,11 @@ function addCustomReward(){
         "title":addRewardName,
         "cost": 15000, 
         "is_user_input_required": true,
-        "prompt": "Please enter the 7TV emote link you would like to add. No sexual emotes. If you manage to outsmart me, a mod will remove the emote. Refunds will be automatic on failed requests.",
+        "prompt": "Please enter the link for the 7TV emote you would like to add. No sexual emotes. If you manage to outsmart me, a mod will remove the emote. Refunds will be automatic on failed requests.",
+        "is_max_per_user_per_stream_enabled": true,
+        "max_per_user_per_stream": 10,
         "is_global_cooldown_enabled": true,
-        "global_cooldown_seconds": 5, //CHANGE THIS BEFORE LAUNCHING ON MONCHIS STREAM. VALUE IS IN SECONDS
+        "global_cooldown_seconds": 10, //CHANGE THIS BEFORE LAUNCHING ON MONCHIS STREAM. VALUE IS IN SECONDS
         "background_color": "#00FFFF"
     };
 
@@ -454,9 +455,11 @@ function addCustomReward(){
         "title":removeRewardName,
         "cost": 15000,
         "is_user_input_required": true,
-        "prompt": "Please enter the 7TV emote link you would like to remove.",
+        "prompt": "Please enter the link for the 7TV emote you would like to remove.",
+        "is_max_per_user_per_stream_enabled": true,
+        "max_per_user_per_stream": 10,
         "is_global_cooldown_enabled": true,
-        "global_cooldown_seconds": 5, //CHANGE THIS BEFORE LAUNCHING ON MONCHIS STREAM. VALUE IS IN SECONDS
+        "global_cooldown_seconds": 10, //CHANGE THIS BEFORE LAUNCHING ON MONCHIS STREAM. VALUE IS IN SECONDS
         "background_color": "#FF0000"
     };
 
