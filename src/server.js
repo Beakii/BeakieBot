@@ -443,7 +443,7 @@ function addCustomReward(){
         "title":addRewardName,
         "cost": 15000, 
         "is_user_input_required": true,
-        "prompt": "Please enter the link for the 7TV emote you would like to add. No sexual emotes. If you manage to outsmart me, a mod will remove the emote. Refunds will be automatic on failed requests.",
+        "prompt": "Please enter the link for the 7TV emote you would like to add. Please no sexual emotes. Refunds will be automatic on failed requests.",
         "is_max_per_user_per_stream_enabled": true,
         "max_per_user_per_stream": 10,
         "is_global_cooldown_enabled": true,
@@ -455,7 +455,7 @@ function addCustomReward(){
         "title":removeRewardName,
         "cost": 15000,
         "is_user_input_required": true,
-        "prompt": "Please enter the link for the 7TV emote you would like to remove.",
+        "prompt": "Please enter the link for the 7TV emote you would like to remove. Refunds will be automatic on failed requests.",
         "is_max_per_user_per_stream_enabled": true,
         "max_per_user_per_stream": 10,
         "is_global_cooldown_enabled": true,
@@ -745,13 +745,10 @@ function twitchWebhookEventHandler(webhookEvent){
 };
 
 function chatMessageHandler(channel, userState, message, self) {
+    const wordArray = message.split(" ");
 
-    //sendTwitchChatMessage("","", "connected");
-
-    // const wordArray = message.split(" ");
-
-    // if (wordArray[0].toLowerCase() === "!endstream") {
-    //    endAllSubbedStreams();
-    // }
+    if (wordArray[0].toLowerCase() === "!beakieai") {
+        chatbot.action(configuration.channels[0], "hiii I'm a relatively dumb chatbot I only handle 7TV add/remove requests but am looking to extend my functionality! If you have suggestions please let @Beakie know ok")
+    }
 }
 //#endregion
