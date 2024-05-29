@@ -1,5 +1,5 @@
-// const configuration = require('./configs/configTest');
-const configuration = require('./configs/configProduction');
+const configuration = require('./configs/configTest');
+//const configuration = require('./configs/configProduction');
 
 const typesConfig = {
     "channel.follow": {

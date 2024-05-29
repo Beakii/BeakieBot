@@ -1,7 +1,8 @@
 const axios = require('axios');
-const configuration = require('./configs/configProduction');
-// const configuration = require('./configs/configTest');
+//const configuration = require('./configs/configProduction');
+const configuration = require('./configs/configTest');
 const twitchEvents = require('./twitchEvents');
+const eightBall = require('./8ball');
 const DBConfig = require('./configs/dbConfig');
 const fs = require('fs');
 const express = require('express');
@@ -18,11 +19,17 @@ const Request = require('tedious').Request;
 const TYPES = require('tedious').TYPES;
 const tmi = require('tmi.js');
 var bannedWords = require('./configs/bannedWords');
+const OpenAI = require('openai').OpenAI;
+
+var openAi = new OpenAI({
+    apiKey: configuration.chatGPT_Token
+});
 
 const ngrokURL = "https://typically-quick-kingfish.ngrok-free.app";
 let access_token = "";
 let oauth_token = "";
 let oauth_refresh_token = "";
+
 let expiresIn = new Date();
 const addRewardName = "7TV ADD";
 const removeRewardName = "7TV REMOVE";
@@ -182,7 +189,6 @@ function getListOfManagableRedeems(){
 
 function twitchTokenValidate(token){
     // Validate a token
-    console.log(token);
     return axios.get("https://id.twitch.tv/oauth2/validate",
     {
         headers:{
@@ -206,9 +212,10 @@ function twitchGetOAuthToken(refreshToken){
     }).then(res => {
         oauth_token = res.data.access_token;
         oauth_refresh_token = res.data.refresh_token;
-        expiresIn = res.data.expires_in;
-
-        console.log("Refresh token will expire in: "+expiresIn/60+" minutes");
+        
+        expiresIn.setSeconds(expiresIn.getSeconds() + (res.data.expires_in - 120));
+        console.log(expiresIn);
+        console.log("Refresh token will expire in: "+res.data.expires_in);
 
         //Wait 5 seconds to run this to negate race conditions
         setTimeout(() => {
@@ -438,6 +445,9 @@ function sendTwitchChatMessage(userName, emotePrefix, message){
     chatbot.action(configuration.channels[0], emotePrefix + "@"+ userName + " " + message);
 }
 
+//Attempt to use oauth token
+//if fail -> renew
+
 function addCustomReward(){
     var data = {
         "title":addRewardName,
@@ -462,6 +472,18 @@ function addCustomReward(){
         "global_cooldown_seconds": 10, //CHANGE THIS BEFORE LAUNCHING ON MONCHIS STREAM. VALUE IS IN SECONDS
         "background_color": "#FF0000"
     };
+
+    // twitchTokenValidate(oauth_token).then(res => {
+    //     if(res.status !== 200){
+    //         twitchGetOAuthToken(oauth_refresh_token);
+
+
+    //         setTimeout(() => {
+    //             addCustomReward();
+    //         }, 2000);
+    //     }
+    //     else{
+    //     }
 
     //This creates the ADD reward
     axios.post("https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id="+configuration.broadcaster_id,
@@ -497,7 +519,27 @@ function addCustomReward(){
 }
 
 function removeCustomReward(){
-    axios.delete("https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id="+configuration.broadcaster_id+"&id="+redeemId[0],
+    twitchTokenValidate(oauth_token).then(res => {
+        if(res.status !== 200){
+            twitchGetOAuthToken(oauth_refresh_token);
+
+            setTimeout(() => {
+                removeCustomReward();
+            }, 2000);
+        }
+        else{
+            axios.delete("https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id="+configuration.broadcaster_id+"&id="+redeemId[0],
+            {
+                headers: {
+                    "Content-Type": "application/json",
+                    "Client-ID": configuration.CLIENT_ID,
+                    "Authorization": "Bearer " + oauth_token
+                }
+            })
+        .then(response => console.log("Removed custom reward with status: "+response.status))
+        .catch(error => console.log(error));
+    
+        axios.delete("https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id="+configuration.broadcaster_id+"&id="+redeemId[1],
         {
             headers: {
                 "Content-Type": "application/json",
@@ -505,37 +547,40 @@ function removeCustomReward(){
                 "Authorization": "Bearer " + oauth_token
             }
         })
-    .then(response => console.log("Removed custom reward with status: "+response.status))
-    .catch(error => console.log(error));
-
-    axios.delete("https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id="+configuration.broadcaster_id+"&id="+redeemId[1],
-    {
-        headers: {
-            "Content-Type": "application/json",
-            "Client-ID": configuration.CLIENT_ID,
-            "Authorization": "Bearer " + oauth_token
+        .then(response => console.log("Removed custom reward with status: "+response.status))
+        .catch(error => console.log(error));
         }
     })
-.then(response => console.log("Removed custom reward with status: "+response.status))
-.catch(error => console.log(error));
 }
 
 function updateRedemptionStatus(rewardStatus, redemptionId, rewardId){
     var data = {
         "status": rewardStatus,
     };
-    axios.patch("https://api.twitch.tv/helix/channel_points/custom_rewards/redemptions?broadcaster_id="+configuration.broadcaster_id+"&reward_id="+rewardId+"&id="+redemptionId,
-    data,    
-        {
-            headers: {
-                "Content-Type": "application/json",
-                "Client-ID": configuration.CLIENT_ID,
-                "Authorization": "Bearer " + oauth_token
-            }
+
+    twitchTokenValidate(oauth_token).then(res => {
+        if(res.status !== 200){
+            twitchGetOAuthToken(oauth_refresh_token);
+
+            setTimeout(() => {
+                updateRedemptionStatus(rewardStatus, redemptionId, rewardId);
+            }, 2000);
         }
-    )
-    .then(response => console.log("Update redemption status:"+response.status))
-    .catch(error => console.log(error));
+        else{
+            axios.patch("https://api.twitch.tv/helix/channel_points/custom_rewards/redemptions?broadcaster_id="+configuration.broadcaster_id+"&reward_id="+rewardId+"&id="+redemptionId,
+            data,    
+                {
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Client-ID": configuration.CLIENT_ID,
+                        "Authorization": "Bearer " + oauth_token
+                    }
+                }
+            )
+            .then(response => console.log("Update redemption status:"+response.status))
+            .catch(error => console.log(error));
+        }
+    })
 }
 
 //Filters the input text to return an array of valid URL's
@@ -637,7 +682,7 @@ function isValidToSend(emoteId, eventUserName){
                 //Check if the emote is publicly listed
                 if(!isPubliclyListed){
                     console.log("emote is not publicly listed. ask mod to review")
-                    sendTwitchChatMessage(eventUserName, "frfr ", "hat emote is not publicly listed, ask a mod to review it. I'll refund your points.");
+                    sendTwitchChatMessage(eventUserName, "frfr ", "that emote is not publicly listed, ask a mod to review it. I'll refund your points.");
                     return false;
                 }
                 else{
@@ -744,10 +789,61 @@ function twitchWebhookEventHandler(webhookEvent){
     }
 };
 
-function chatMessageHandler(channel, userState, message, self) {
-    const wordArray = message.split(" ");
+function chatGPTRequest(gptRequest){
+    try{
+    return openAi.chat.completions.create({
+        messages: [
+            {
+            role: "user",
+            content: ` ${gptRequest} but limit the response to maximum 300 characters and do not list items, only reply in paragraph`,
+            },
+        ],
+        model: "gpt-4o",
+        });
+    } catch(e){
+        console.log(e)
+    }
+}
 
-    if (wordArray[0].toLowerCase() === "!beakieai") {
+
+function chatMessageHandler(channel, userState, message, self) {
+    if(userState.username === "beakieai"){
+        return
+    }
+
+
+    var wordArray = message.split(" ");
+
+    if ((wordArray[0].toLowerCase() === "@beakieai") && (typeof wordArray[1] !== 'undefined' && wordArray[1] !== null)) {
+        let emote = Math.floor(Math.random() * eightBall.emotes.length);
+        let reply = Math.floor(Math.random() * eightBall.replies.length);
+
+        switch(wordArray[1]){
+            case "gpt":
+                var gptRequest = wordArray.slice(2).toString();
+                chatGPTRequest(gptRequest).then(res => {
+                    //console.log(res.choices[0].message.content);
+                    chatbot.action(configuration.channels[0], `@${userState.username} ${res.choices[0].message.content}`);
+                });
+                return
+
+            case "notxqcL" || "FRICK":
+                chatbot.action(configuration.channels[0], `@${userState.username} no, frick you`);
+                return
+
+            default:
+                if(wordArray.includes("NICONICONII")){
+                    chatbot.action(configuration.channels[0], `@${userState.username} NICONICONII`);
+                    return
+                }
+                else{
+                    chatbot.action(configuration.channels[0], `@${userState.username} ${eightBall.replies[reply]} ${eightBall.emotes[emote]}`)
+                }
+                return
+        }
+    }
+
+    if (wordArray[0].toLowerCase() === "@beakieai") {
         chatbot.action(configuration.channels[0], "hiii I'm a relatively dumb chatbot I only handle 7TV add/remove requests but am looking to extend my functionality! If you have suggestions please let @Beakie know ok")
     }
 }
