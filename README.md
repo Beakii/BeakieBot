@@ -1,3 +1,4 @@
+# DEPRECATED - NO LONGER SUPPORTED
 # BeakieBot Twitch Event Listener
 
 BeakieBot is a JavaScript based bot that listens to the EventSub API from Twitch and interacts with the 7TV API endpoints.
